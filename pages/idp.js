@@ -30,6 +30,7 @@ import styles from '../styles/Home.module.css'
 import IdPInstructionsDialog from '../components/IdPInstructionsDialog'
 import ErrorNotification from '../components/ErrorNotification'
 import parse from 'urlencoded-body-parser'
+import { parseConfigParam } from '../lib/utils'
 
 export default function IdP(props) {
   const [assertion, setAssertion] = useState(assertionTemplate)
@@ -418,12 +419,52 @@ export async function getServerSideProps(context) {
   const q = context.query
   const b = context.req.method === 'POST' ? await parse(context.req) : {}
 
+  // Try to parse config param (base64url-encoded query string) first
+  // Fall back to individual aud/acs_url params for backward compatibility
+  let aud = ''
+  let acsUrl = ''
+
+  console.log('[DEBUG] Query params:', q)
+
+  if (q.config) {
+    const configData = parseConfigParam(q.config)
+    aud = configData.aud
+    acsUrl = configData.acsUrl
+    console.log('[DEBUG] Parsed from config (query):', { aud, acsUrl })
+  }
+
+  // Also check POST body for config param
+  if (!aud && b.config) {
+    const configData = parseConfigParam(b.config)
+    aud = configData.aud
+    acsUrl = configData.acsUrl
+    console.log('[DEBUG] Parsed from config (POST body):', { aud, acsUrl })
+  }
+
+  // Fall back to old-style params if config not provided
+  if (!aud && q.aud) {
+    aud = q.aud
+  }
+  if (!acsUrl && q.acs_url) {
+    acsUrl = q.acs_url
+  }
+
+  // Also check POST body for old-style params
+  if (!aud && b.aud) {
+    aud = b.aud
+  }
+  if (!acsUrl && b.acs_url) {
+    acsUrl = b.acs_url
+  }
+
+  console.log('[DEBUG] Final props:', { aud, acsUrl, relayState: q.RelayState || '' })
+
   return {
     props: {
       samlreq: b.SAMLRequest || q.SAMLRequest || null,
       relayState: b.RelayState || q.RelayState || '',
-      aud: q.aud || '',
-      acsUrl: q.acs_url || '',
+      aud: aud,
+      acsUrl: acsUrl,
     },
   }
 }
